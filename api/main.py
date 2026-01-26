@@ -2,6 +2,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -38,6 +39,7 @@ from api.routers import (
 )
 from api.routers import commands as commands_router
 from open_notebook.database.async_migrate import AsyncMigrationManager
+from open_notebook.database.repository import db_connection
 
 # Import commands to register them in the API process
 try:
@@ -45,6 +47,28 @@ try:
     logger.info("Commands imported in API process")
 except Exception as e:
     logger.error(f"Failed to import commands in API process: {e}")
+
+
+async def wait_for_database(max_retries: int = 30, retry_interval: int = 2) -> bool:
+    """
+    Wait for SurrealDB to be ready before proceeding.
+    Returns True if database is ready, False otherwise.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with db_connection() as conn:
+                # Try a simple query to verify connection
+                await conn.query("INFO FOR DB;")
+                logger.info(f"SurrealDB is ready (attempt {attempt}/{max_retries})")
+                return True
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(f"Database not ready (attempt {attempt}/{max_retries}): {str(e)[:100]}. Retrying in {retry_interval}s...")
+                await asyncio.sleep(retry_interval)
+            else:
+                logger.error(f"Database not ready after {max_retries} attempts: {str(e)}")
+                return False
+    return False
 
 
 @asynccontextmanager
@@ -56,31 +80,36 @@ async def lifespan(app: FastAPI):
     # Startup: Run database migrations
     logger.info("Starting API initialization...")
 
-    try:
-        migration_manager = AsyncMigrationManager()
-        current_version = await migration_manager.get_current_version()
-        total_migrations = len(migration_manager.up_migrations)
-        logger.info(f"Current database version: {current_version}, Total migrations available: {total_migrations}")
+    # Wait for database to be ready
+    db_ready = await wait_for_database(max_retries=30, retry_interval=2)
+    if not db_ready:
+        logger.error("SurrealDB is not available - API will start but database features may not work")
+    else:
+        try:
+            migration_manager = AsyncMigrationManager()
+            current_version = await migration_manager.get_current_version()
+            total_migrations = len(migration_manager.up_migrations)
+            logger.info(f"Current database version: {current_version}, Total migrations available: {total_migrations}")
 
-        # If database version is higher than or equal to available migrations, skip
-        if current_version >= total_migrations:
-            logger.info(f"Database is at version {current_version}, which is >= available migrations ({total_migrations}). Skipping migrations.")
-        elif await migration_manager.needs_migration():
-            logger.warning("Database migrations are pending. Running migrations...")
-            await migration_manager.run_migration_up()
-            new_version = await migration_manager.get_current_version()
-            logger.success(f"Migrations completed successfully. Database is now at version {new_version}")
-        else:
-            logger.info("Database is already at the latest version. No migrations needed.")
-    except FileNotFoundError as e:
-        # Migration files missing - log error but continue (schema might already be up to date)
-        logger.error(f"Migration file not found: {str(e)}")
-        logger.warning("Continuing without running migrations - database schema may be outdated")
-    except Exception as e:
-        logger.error(f"Database migration error: {str(e)}")
-        logger.exception(e)
-        # Log the error but try to continue - the API might still work
-        logger.warning("Continuing API startup despite migration error - some features may not work correctly")
+            # If database version is higher than or equal to available migrations, skip
+            if current_version >= total_migrations:
+                logger.info(f"Database is at version {current_version}, which is >= available migrations ({total_migrations}). Skipping migrations.")
+            elif await migration_manager.needs_migration():
+                logger.warning("Database migrations are pending. Running migrations...")
+                await migration_manager.run_migration_up()
+                new_version = await migration_manager.get_current_version()
+                logger.success(f"Migrations completed successfully. Database is now at version {new_version}")
+            else:
+                logger.info("Database is already at the latest version. No migrations needed.")
+        except FileNotFoundError as e:
+            # Migration files missing - log error but continue (schema might already be up to date)
+            logger.error(f"Migration file not found: {str(e)}")
+            logger.warning("Continuing without running migrations - database schema may be outdated")
+        except Exception as e:
+            logger.error(f"Database migration error: {str(e)}")
+            logger.exception(e)
+            # Log the error but try to continue - the API might still work
+            logger.warning("Continuing API startup despite migration error - some features may not work correctly")
 
     logger.success("API initialization completed")
 
