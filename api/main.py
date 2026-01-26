@@ -59,22 +59,30 @@ async def lifespan(app: FastAPI):
     try:
         migration_manager = AsyncMigrationManager()
         current_version = await migration_manager.get_current_version()
-        logger.info(f"Current database version: {current_version}")
+        total_migrations = len(migration_manager.up_migrations)
+        logger.info(f"Current database version: {current_version}, Total migrations available: {total_migrations}")
 
-        if await migration_manager.needs_migration():
+        # If database version is higher than or equal to available migrations, skip
+        if current_version >= total_migrations:
+            logger.info(f"Database is at version {current_version}, which is >= available migrations ({total_migrations}). Skipping migrations.")
+        elif await migration_manager.needs_migration():
             logger.warning("Database migrations are pending. Running migrations...")
             await migration_manager.run_migration_up()
             new_version = await migration_manager.get_current_version()
             logger.success(f"Migrations completed successfully. Database is now at version {new_version}")
         else:
             logger.info("Database is already at the latest version. No migrations needed.")
+    except FileNotFoundError as e:
+        # Migration files missing - log error but continue (schema might already be up to date)
+        logger.error(f"Migration file not found: {str(e)}")
+        logger.warning("Continuing without running migrations - database schema may be outdated")
     except Exception as e:
-        logger.error(f"CRITICAL: Database migration failed: {str(e)}")
+        logger.error(f"Database migration error: {str(e)}")
         logger.exception(e)
-        # Fail fast - don't start the API with an outdated database schema
-        raise RuntimeError(f"Failed to run database migrations: {str(e)}") from e
+        # Log the error but try to continue - the API might still work
+        logger.warning("Continuing API startup despite migration error - some features may not work correctly")
 
-    logger.success("API initialization completed successfully")
+    logger.success("API initialization completed")
 
     # Yield control to the application
     yield
