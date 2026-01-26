@@ -3,11 +3,33 @@ Async migration system for SurrealDB using the official Python client.
 Based on patterns from sblpy migration system.
 """
 
+from pathlib import Path
 from typing import List
 
 from loguru import logger
 
 from .repository import db_connection, repo_query
+
+
+def get_project_root() -> Path:
+    """Get the project root directory (where migrations folder is located)."""
+    # Look for migrations folder starting from this file's location
+    current = Path(__file__).parent.parent.parent  # up from database/ -> open_notebook/ -> project root
+    if (current / "migrations").exists():
+        return current
+    
+    # Fallback: try /app for Docker containers
+    app_path = Path("/app")
+    if (app_path / "migrations").exists():
+        return app_path
+    
+    # Last resort: current working directory
+    cwd = Path.cwd()
+    if (cwd / "migrations").exists():
+        return cwd
+    
+    logger.warning(f"Could not find migrations folder. Checked: {current}, {app_path}, {cwd}")
+    return cwd
 
 
 class AsyncMigration:
@@ -22,16 +44,28 @@ class AsyncMigration:
     @classmethod
     def from_file(cls, file_path: str) -> "AsyncMigration":
         """Create migration from SQL file."""
-        with open(file_path, "r", encoding="utf-8") as file:
-            raw_content = file.read()
-            # Clean up SQL content
-            lines = []
-            for line in raw_content.split("\n"):
-                line = line.strip()
-                if line and not line.startswith("--"):
-                    lines.append(line)
-            sql = " ".join(lines)
-            return cls(sql)
+        file_path_obj = Path(file_path)
+        
+        # Check if file exists
+        if not file_path_obj.exists():
+            logger.error(f"Migration file not found: {file_path}")
+            raise FileNotFoundError(f"Migration file not found: {file_path}")
+        
+        try:
+            with open(file_path_obj, "r", encoding="utf-8") as file:
+                raw_content = file.read()
+                # Clean up SQL content
+                lines = []
+                for line in raw_content.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("--"):
+                        lines.append(line)
+                sql = " ".join(lines)
+                logger.debug(f"Loaded migration from {file_path}")
+                return cls(sql)
+        except Exception as e:
+            logger.error(f"Failed to load migration from {file_path}: {e}")
+            raise
 
     async def run(self, bump: bool = True) -> None:
         """Run the migration."""
@@ -66,9 +100,19 @@ class AsyncMigrationRunner:
     async def run_all(self) -> None:
         """Run all pending up migrations."""
         current_version = await get_latest_version()
-
-        for i in range(current_version, len(self.up_migrations)):
-            logger.info(f"Running migration {i + 1}")
+        total_migrations = len(self.up_migrations)
+        
+        logger.info(f"Migration status: current version={current_version}, total migrations={total_migrations}")
+        
+        if current_version >= total_migrations:
+            logger.info(f"Database already at version {current_version}, which is >= total migrations ({total_migrations}). Nothing to do.")
+            return
+        
+        for i in range(current_version, total_migrations):
+            if i >= len(self.up_migrations):
+                logger.error(f"Migration index {i} is out of bounds. Available migrations: {len(self.up_migrations)}")
+                break
+            logger.info(f"Running migration {i + 1} of {total_migrations}")
             await self.up_migrations[i].run(bump=True)
 
     async def run_one_up(self) -> None:
@@ -95,50 +139,55 @@ class AsyncMigrationManager:
 
     def __init__(self):
         """Initialize migration manager."""
+        project_root = get_project_root()
+        migrations_dir = project_root / "migrations"
+        logger.info(f"Loading migrations from: {migrations_dir}")
+        
         self.up_migrations = [
-            AsyncMigration.from_file("migrations/1.surrealql"),
-            AsyncMigration.from_file("migrations/2.surrealql"),
-            AsyncMigration.from_file("migrations/3.surrealql"),
-            AsyncMigration.from_file("migrations/4.surrealql"),
-            AsyncMigration.from_file("migrations/5.surrealql"),
-            AsyncMigration.from_file("migrations/6.surrealql"),
-            AsyncMigration.from_file("migrations/7.surrealql"),
-            AsyncMigration.from_file("migrations/8.surrealql"),
-            AsyncMigration.from_file("migrations/9.surrealql"),
-            AsyncMigration.from_file("migrations/10.surrealql"),
-            AsyncMigration.from_file("migrations/11.surrealql"),
-            AsyncMigration.from_file("migrations/12.surrealql"),
-            AsyncMigration.from_file("migrations/13.surrealql"),
-            AsyncMigration.from_file("migrations/14.surrealql"),
-            AsyncMigration.from_file("migrations/15.surrealql"),
-            AsyncMigration.from_file("migrations/16.surrealql"),
-            AsyncMigration.from_file("migrations/17.surrealql"),
-            AsyncMigration.from_file("migrations/18.surrealql"),
+            AsyncMigration.from_file(str(migrations_dir / "1.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "2.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "3.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "4.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "5.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "6.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "7.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "8.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "9.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "10.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "11.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "12.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "13.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "14.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "15.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "16.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "17.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "18.surrealql")),
         ]
         self.down_migrations = [
-            AsyncMigration.from_file("migrations/1_down.surrealql"),
-            AsyncMigration.from_file("migrations/2_down.surrealql"),
-            AsyncMigration.from_file("migrations/3_down.surrealql"),
-            AsyncMigration.from_file("migrations/4_down.surrealql"),
-            AsyncMigration.from_file("migrations/5_down.surrealql"),
-            AsyncMigration.from_file("migrations/6_down.surrealql"),
-            AsyncMigration.from_file("migrations/7_down.surrealql"),
-            AsyncMigration.from_file("migrations/8_down.surrealql"),
-            AsyncMigration.from_file("migrations/9_down.surrealql"),
-            AsyncMigration.from_file("migrations/10_down.surrealql"),
-            AsyncMigration.from_file("migrations/11_down.surrealql"),
-            AsyncMigration.from_file("migrations/12_down.surrealql"),
-            AsyncMigration.from_file("migrations/13_down.surrealql"),
-            AsyncMigration.from_file("migrations/14_down.surrealql"),
-            AsyncMigration.from_file("migrations/15_down.surrealql"),
-            AsyncMigration.from_file("migrations/16_down.surrealql"),
-            AsyncMigration.from_file("migrations/17_down.surrealql"),
-            AsyncMigration.from_file("migrations/18_down.surrealql"),
+            AsyncMigration.from_file(str(migrations_dir / "1_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "2_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "3_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "4_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "5_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "6_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "7_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "8_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "9_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "10_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "11_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "12_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "13_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "14_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "15_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "16_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "17_down.surrealql")),
+            AsyncMigration.from_file(str(migrations_dir / "18_down.surrealql")),
         ]
         self.runner = AsyncMigrationRunner(
             up_migrations=self.up_migrations,
             down_migrations=self.down_migrations,
         )
+        logger.info(f"AsyncMigrationManager initialized with {len(self.up_migrations)} up migrations and {len(self.down_migrations)} down migrations")
 
     async def get_current_version(self) -> int:
         """Get current database version."""
