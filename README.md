@@ -1,3 +1,40 @@
+<div align="center">
+
+# 📓 Open Notebook: Multi-Agent Research Assistant
+
+**An AI research workspace extended with a multi-agent LangGraph research pipeline, a concept knowledge graph, and Indic-language podcast generation.**
+
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-1C3C3C)
+![Next.js](https://img.shields.io/badge/Next.js-Frontend-000000?logo=nextdotjs)
+![SurrealDB](https://img.shields.io/badge/SurrealDB-Vector%20%2B%20Graph-FF00A0)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+</div>
+
+> Built on top of the open-source [lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) (MIT). This repository adds the research extensions below. The original project documentation follows after them.
+
+## ✨ What this fork adds
+
+| Extension | Description | Key files |
+|---|---|---|
+| 🤖 **Multi-agent research pipeline** | A LangGraph `StateGraph` of specialised agents (**Router → Scholar → Fact-Check → Synthesis → Report**) that splits a research question into retrieval, claim checking against sources, and a structured report | `open_notebook/graphs/research.py` |
+| 🕸️ **Knowledge graph** | Concepts, people, events, places and organisations are pulled from sources into typed nodes and edges, with embeddings, importance scores and mention counts. The graph is explored in an interactive viewer with an insights panel | `open_notebook/domain/knowledge_graph.py`, `api/routers/knowledge_graph.py`, `frontend/.../knowledge-graph/` |
+| 🎙️ **Indic podcast generation** | Groq LLM script generation with **Sarvam AI** text-to-speech, for podcasts in Indian languages | `open_notebook/services/sarvam_podcast.py`, `sarvam_tts.py` |
+| ☁️ **Deployment** | Configs for Railway, Render, Koyeb and Docker, plus local Cloudflare-tunnel scripts | `Dockerfile.*`, `render.yaml`, `.koyeb.yaml` |
+
+```mermaid
+flowchart LR
+    Q[User question] --> R[Router Agent]
+    R --> FS[Fetch sources<br/>vector search] --> S[Scholar Agent]
+    S --> F[Fact-Check Agent]
+    F --> Y[Synthesis Agent]
+    Y --> P[Report Agent]
+    P --> A[Structured research report]
+```
+
+---
+
 <a id="readme-top"></a>
 
 <!-- [![Contributors][contributors-shield]][contributors-url] -->
